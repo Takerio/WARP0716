@@ -56,17 +56,18 @@ CustomData:
             author : Andrei Karas (4144), Asheraf
             desc : Changes the minimum and maximum level range shown in the Adventurer Agency (party finder) window. Adjust to match your server's level cap and party requirements.
 
-        - EnableEotFonts:
-            title : Enable Official custom .eot Fonts
+        - EnableCustomFonts:
+            title : Enable Official Custom Fonts (Reforged)
             recommend : no
-            author : Shinryo
-            desc : Enables loading of Gravity's official custom fonts (.eot files in the data folder) for all langtypes. Without this, custom EOT fonts only load on certain service types.
-        
+            needs : FixFontsCharset
+            author : CrazyBebop, Shinryo
+            desc : Loads custom .ttf fonts via AddFontResourceExA at init, bypassing the broken T2Embed API on modern Windows. Prompts to copy included .ttf fonts to your client folder on first apply. Requires FixFontsCharset (auto-enabled).
+
         - FixFontsCharset:
             title : Fix charset for Fonts
             recommend : no
-            author : CH.C (jchcc)
-            desc : Fixes the character encoding (charset) used for official custom fonts (EOT and OTF) so they render correctly on all langtypes. Prevents garbled text when using custom fonts on non-Korean service types.
+            author : CrazyBebop, CH.C (jchcc)
+            desc : Fixes the character encoding (charset) used for official custom fonts (EOT and OTF) so they render correctly on all langtypes. Prevents garbled text when using custom fonts on non-Korean service types. Fixed EDI register clobber for 07-16.
         
         - AlwaysAscii:
             title : Use Ascii on All

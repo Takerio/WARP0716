@@ -42,7 +42,7 @@
 11  : NoUsernameLimit
 12  : NoPasswordLimit
 16  : NoSwearFilter
-17  : EnableEotFonts
+17  : EnableCustomFonts
 18  : SkipServiceSelect
 19  : EnableSysMenu
 20  : ResizeChatBox

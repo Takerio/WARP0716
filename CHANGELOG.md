@@ -1,4 +1,30 @@
-# CrazyBebop — 2025-07-16 build (Mar 18, 2026)
+# CrazyBebop — 2025-07-16 build (Mar 19, 2026)
+
+## Mar 19 Update
+
+### Enable Official Custom Fonts (Reforged) — Full Rewrite
+Microsoft's T2Embed API (`TTLoadEmbeddedFont`) is broken on modern Windows — it returns `E_T2NOFREEMEMORY` (0x200) for all `.eot` files because support for the MicroType Express (MTX) compressed font format was removed in newer Windows versions. The original `EnableEotFonts` patch only NOP'd the langtype check, which did nothing since T2Embed silently fails anyway.
+
+This rewrite bypasses T2Embed entirely and loads fonts through the standard Windows font API:
+
+- **Font loading** — Hooks `InitGameSubsystems` to load `.ttf` font files via `AddFontResourceExA` (the same API the client already uses for SCDream `.otf` fonts)
+- **Face name fix** — The binary uses filenames like `"RixSquirrel_10.eot"` as `CreateFontIndirectA` face names, but `.ttf` fonts register without the `.eot` extension. The patch strips `.eot` from all 11 face name strings at patch time
+- **NHCgogo mismatch** — The EOT header says `"RixNHCgogo_10"` but the TTF data inside has `"NHCgogo_10"` (no Rix prefix). The patch corrects this name mismatch
+- **Font file management** — On apply, WARP prompts for your client folder, copies the included `.ttf` fonts to `System\Font\`, and optionally deletes the old `.eot` files
+- **Custom fonts** — Users can replace any `.ttf` in `System\Font\` with their own font (same filename). `@font 1-9` uses whatever `.ttf` is there — it's client-side only, no one else sees your fonts
+- **FixFontsCharset dependency** — Auto-enables `FixFontsCharset` (which was also fixed — the original clobbered the EDI register, crashing `MultiByteToWideChar`)
+
+Pre-converted `.ttf` files for all 13 fonts are included in `Inputs/Fonts/`.
+
+**Renamed:** `EnableEotFonts.qjs` → `EnableCustomFonts.qjs`
+
+### FixFontsCharset — Crash Fix
+- The original patch used `MOV EDI, [LANGTYPE]` in its trampoline, clobbering the callee-saved EDI register. This corrupted `CTextRenderer__MeasureTextExtent`'s `this` pointer, causing an access violation in `MultiByteToWideChar`
+- Fixed by using EAX as the temp register instead of EDI (`MOV EAX, [LANGTYPE]` + `MOVZX EAX, BYTE [EAX + csTbl]`)
+
+### EnableEotFonts (original) — Pattern Fix
+- The original `POS3WC` pattern only matched addresses with high byte `0x00`. The 07-16 binary has addresses in the `0x01xxxxxx` range, so the correct match in `InitGameSubsystems` was skipped and the patch hit `CTimedEventMgr__PlayQuestEffect` instead — a completely unrelated function
+- Fixed with `POS4WC` fallback (now superseded by the full rewrite above)
 
 ## Mar 18 Update
 

@@ -2,7 +2,7 @@
 
 WARP patches for the 2025-07-16 client build. This build of WARP **only accepts the 2025-07-16 client EXE** — it will reject any other version.
 
-19 patches fixed for 07-16 compatibility, 20+ dead patches removed, all patch descriptions rewritten, and Custom Jobs (Reforged) fully implemented with 19 binary phases. **0 errors on all-patch test** (patches apply cleanly — does not guarantee every feature works as intended in-game; if you find something off, please [open an issue](https://github.com/CrazyBebop/WARP0716/issues)).
+21 patches fixed for 07-16 compatibility, 20+ dead patches removed, all patch descriptions rewritten, Custom Jobs (Reforged) fully implemented with 19 binary phases, and Custom Fonts (Reforged) rewritten for modern Windows (T2Embed → AddFontResourceExA). **0 errors on all-patch test** (patches apply cleanly — does not guarantee every feature works as intended in-game; if you find something off, please [open an issue](https://github.com/CrazyBebop/WARP0716/issues)).
 
 ## Setup
 
@@ -18,7 +18,7 @@ Click **"Recommended"** in the WARP GUI to select all recommended patches at onc
 
 ## What's New
 
-### Patch Fixes (19 patches fixed for 07-16)
+### Patch Fixes (21 patches fixed for 07-16)
 - **CallKoreaClientInfo** — Fixed pattern matching for 07-16
 - **NoEarthQuake** — Fixed string match hitting wrong target
 - **NoEquipWinTitle** — Window struct offsets shifted +0x20
@@ -34,6 +34,11 @@ Click **"Recommended"** in the WARP GUI to select all recommended patches at onc
 - **NoGGuard** — Fixed RagHash.dat crash (stale file no longer crashes client)
 - **GRFsFromIni** — Fixed crash on invalid DATA.INI entries
 - **IncreaseHairsLimit** — Fixed compatibility with CustomJobs (both patches modify same memory)
+- **EnableCustomFonts** — Full rewrite: T2Embed broken on modern Windows, now loads .ttf via AddFontResourceExA with face name fixes
+- **FixFontsCharset** — Fixed EDI register clobber causing crash in MultiByteToWideChar
+
+### Custom Fonts (Reforged) — Full Rewrite
+Microsoft's T2Embed font loading API is broken on modern Windows — `.eot` fonts silently fail to load. This rewrite bypasses T2Embed and loads pre-converted `.ttf` fonts via `AddFontResourceExA`. WARP prompts to copy the included `.ttf` files to your client on apply. All 9 `@font` styles work. Users can also replace any `.ttf` in `System\Font\` with their own custom font (client-side only). See [CHANGELOG.md](CHANGELOG.md) for technical details.
 
 ### Custom Jobs (Reforged) — 19 Phases, Full Rewrite
 Add custom jobs to your server without binary patching — just edit 7 Lua files. Supports baby classes (0.75x scaling), multi-tier skill trees (like Night Watch), mount integration (Boarding Halter), and error display for Lua loading issues. Includes a working example with baby variant. See the [Custom Jobs Guide](docs/CustomJobs/CUSTOM_JOBS_GUIDE.html) or [view online](https://legacygamers.net/docs/public/customjobs-reforged/) for full setup instructions. For more details, read the [CHANGELOG.md](CHANGELOG.md). Please [report any issues](https://github.com/CrazyBebop/WARP0716/issues).
@@ -84,7 +89,7 @@ It is never required, but if you feel the need to contribute to the project fina
 
 **PayPal:** <a href="https://www.paypal.com/donate/?hosted_button_id=WW9FD6SLEZ5BN"><img src="https://www.paypalobjects.com/en_US/i/btn/btn_donate_LG.gif" alt="Donate via PayPal"></a>
 
-Special thanks to the following donors so far: [saprobes](https://github.com/saprobes/), [Gerzzie](https://github.com/Gerzzie), [spike-ro](https://github.com/spike-ro)
+Special thanks to the following donors so far: [saprobes](https://github.com/saprobes/), [Gerzzie](https://github.com/Gerzzie), [spike-ro](https://github.com/spike-ro), kikyam
 
 ## Credits
 

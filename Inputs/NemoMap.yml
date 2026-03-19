@@ -46,7 +46,7 @@
 14  : NoWavyScreen
 15  : NoHShield
 16  : NoSwearFilter
-17  : EnableEotFonts
+17  : EnableCustomFonts
 18  : SkipServiceSelect
 19  : EnableSysMenu
 20  : ResizeChatBox
