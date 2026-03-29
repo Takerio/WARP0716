@@ -10,6 +10,9 @@ Fixed a bug where the first ~12 hair styles displayed the wrong sprite when `All
 - Includes an open-source mid-headgear hook replacing the old encrypted one
 - `IncreaseHairsLimit` has been removed (superseded)
 
+### PreviewInTrader — Cashshop Crash Fix ([#20](https://github.com/CrazyBebop/WARP0716/issues/20))
+Opening an old-style `cashshop` NPC caused an instant crash when `PreviewInTrader` was enabled. The patch tried to access a window object that doesn't exist for cashshop windows. Fixed with a null pointer check.
+
 ## Mar 26 Update
 
 ### InsensitiveStorageSearch — Fixed ([#16](https://github.com/CrazyBebop/WARP0716/issues/16))
