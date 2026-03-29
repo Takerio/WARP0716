@@ -20,9 +20,9 @@
 #                                                                          #
 ############################################################################
 #                                                                          #
-#   Author(s)     : Neo-Mind                                               #
+#   Author(s)     : Neo-Mind, CrazyBebop                                   #
 #   Created Date  : 2020-08-26                                             #
-#   Last Modified : 2022-09-24                                             #
+#   Last Modified : 2026-03-29                                             #
 #                                                                          #
 ############################################################################
 
@@ -98,12 +98,6 @@ CustomUI:
             author : Neo-Mind
             desc : Unlocks country flag emoticons for all langtypes. Requires a text file mapping flag constants to numbers 1-9 to define which flags are available.
 
-        - NoSerialDisplay:
-            title : Remove serial display
-            recommend : yes
-            author : Shinryo , Neo-Mind
-            desc : Hides the client serial number normally shown in the bottom-right corner of the login window. Prevents players from seeing internal version/serial information.
-        
         - AllowSpaceInGName:
             title : Allow blank space in guild name
             recommend : no
@@ -301,23 +295,6 @@ CaseInsensitiveSearch:
             author : Neo-Mind
             desc : Makes the Cash Shop search ignore uppercase/lowercase differences, so items can be found regardless of how you capitalize the search term.
         
-SelectLoginBG:
-    title : LOGIN BACKGROUND
-    mutex : true
-
-    patches:
-        - OnlyFirstBG:
-            title : Use only first login BG
-            recommend : no
-            author : Shinryo
-            desc : Locks the login screen to always show the first background image instead of rotating between multiple backgrounds. Use for a consistent login screen appearance.
-        
-        - OnlySecondBG:
-            title : Use only second login BG
-            recommend : no
-            author : Shinryo
-            desc : Locks the login screen to always show the second background image instead of rotating between multiple backgrounds.
-
 NoGravityImages:
     title : GRAVITY IMAGE REMOVAL
     mutex : false

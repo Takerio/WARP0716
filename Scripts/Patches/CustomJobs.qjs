@@ -1,6 +1,7 @@
 /**************************************************************************\
 *                                                                          *
 *   Copyright (C) 2013-2023 Neo-Mind                                       *
+*   Copyright (C) 2026 CrazyBebop                                          *
 *                                                                          *
 *   This file is a part of WARP project (specific to RO clients)           *
 *                                                                          *
@@ -22,7 +23,7 @@
 *                                                                          *
 *   Author(s)     : CrazyBebop                                             *
 *   Created Date  : 2026-03-10                                             *
-*   Last Modified : 2026-03-18                                             *
+*   Last Modified : 2026-03-28                                             *
 *                                                                          *
 *   07-16 build: Full rewrite (apply0716). Original patch by Neo-Mind.     *
 *   Generic codepath for older clients stripped (07-16 WARP only).         *
@@ -157,9 +158,8 @@ CustomJobs.apply0716 = function(_)
 	$$(_, '0716.P4.2', `Build bounds check trampoline`)
 	const boundsOkVir = Exe.Phy2Vir(boundsAddr + 16, CODE); // instruction after 16-byte bounds block
 
-	// Trampoline: allow [0, 0x2B) and [0xFA1, MaxJob), clamp all others to 0x0D
-	// Also checks if the male palette table entry is non-NULL (prevents crash
-	// when Lua files don't define the custom job — entry stays NULL after expansion)
+	// Trampoline: [0,43) → ok_check, [43,0xFA1) → clamp, [0xFA1,MaxJob) → ok_check, else → clamp
+	// Allow65kHairs patches byte 12 offset (0x14→0x1F) to redirect [43,0xFA1) to ok_exit.
 	const trampCode =
 		CMP(ECX, 0x2B) +                    // 83 F9 2B           (3 bytes)  byte 0
 		JL(0x10) +                           // 7C 10 → ok_check   (2 bytes)  byte 3, target=21
@@ -185,6 +185,11 @@ CustomJobs.apply0716 = function(_)
 		5: boundsOkVir
 	});
 	Exe.SetHex(trampPhys, resolvedTramp);
+
+	// If Allow65kHairs is active, redirect [43,0xFA1) to ok_exit instead of clamp.
+	// fixTblCond handles these styles via itoa. Without Allow65kHairs, clamp is safe.
+	if (Warp.GetPatchState("Allow65kHairs") || Warp.GetPatchState("IncrHairStyles"))
+		Exe.SetHex(trampPhys + 12, " 1F"); // JL(0x14)→JL(0x1F): clamp→ok_exit
 
 	$$(_, '0716.P4.4', `Redirect bounds check to trampoline`)
 	const boundsVir = Exe.Phy2Vir(boundsAddr, CODE);
@@ -681,152 +686,16 @@ CustomJobs.apply0716 = function(_)
 
 	// Phase 8.3-8.4 removed — CLua broken, loop extension was a no-op.
 
-	// ==========================================================
-	// Phase 9: Lua C API code cave in GetJobSpriteIndex
-	// ==========================================================
-	// NOTE: The Lua lookup here is redundant — Phase 9c (entry hook)
-	// already checks PCNames before this code path is reached.
-	// The Lua lookup always returns nil; only the fallback path
-	// (MOV EAX,[ESI+EDX*4]) executes. Kept for defense-in-depth.
-	// Also sets g_luaState (redundant with Phase 11, but harmless).
+	// Phase 9 (table lookup hook) removed — Phase 9c handles all paths.
+	// Phase 9 previously hooked MOV EAX,[ESI+EDX*4] at the direct table
+	// lookup. Now redundant because Phase 9c intercepts at function entry
+	// and returns directly (never falls through to original code).
 
-	$$(_, '0716.P9.1', `Locate MOV EAX,[ESI+EDX*4] after range check`)
-	// MOV is 19 bytes after the LEA pattern found by Phase 8:
-	// LEA(6) + CMP(6) + JBE(2) + CMP(3) + JBE(2) = 19
-	const movAddr = sprIdxAddr + 19;
-	const movBytes = Exe.GetHex(movAddr, 3);
-	if (movBytes !== " 8B 04 96")
-		throw Error("GetJobSpriteIndex MOV EAX,[ESI+EDX*4] not found at expected offset (got " + movBytes + ")");
-
-	$$(_, '0716.P9.2', `Build Lua C API trampoline`)
 	// Lua C API addresses (07-16 specific)
 	const lua_getfield  = 0x519DF0;
 	const lua_rawgeti   = 0x51A650;
 	const lua_tolstring = 0x51ACA0;
 	const lua_settop    = 0x51AAB0;
-
-	let p9code = "";
-
-	// Save registers
-	p9code += " 53";                        // PUSH EBX
-	p9code += " 51";                        // PUSH ECX
-	p9code += " 52";                        // PUSH EDX (job ID)
-
-	// Get CLua* from CGameMode (EDI = this)
-	p9code += " 8B 87 B8 59 00 00";        // MOV EAX, [EDI+0x59B8]
-	p9code += " 85 C0";                    // TEST EAX, EAX
-	p9code += JZ(Filler(90));              // JZ fallback
-
-	// Get lua_State* (first field of CLua struct)
-	p9code += " 8B 00";                    // MOV EAX, [EAX]
-	p9code += " 85 C0";                    // TEST EAX, EAX
-	p9code += JZ(Filler(90));              // JZ fallback
-
-	// EBX = lua_State*
-	p9code += " 8B D8";                    // MOV EBX, EAX
-	p9code += " 89 1D" + g_luaState.toHex(4); // MOV [g_luaState], EBX — save for Phase 7
-
-	// lua_getfield(L, LUA_GLOBALSINDEX, "PCNames")
-	// Note: PUSH needs an absolute address, not a Filler (which resolves
-	// to a relative offset). We write a placeholder here and fix it up
-	// with Exe.SetInt32 after allocation gives us the real VA.
-	const p9PushStrOff = p9code.byteCount();
-	p9code += " 68 00 00 00 00";          // PUSH &"PCNames" (placeholder, fixed after alloc)
-	p9code += " 68 EE D8 FF FF";          // PUSH 0xFFFFD8EE (-10002 = LUA_GLOBALSINDEX)
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(91));            // CALL lua_getfield
-	p9code += " 83 C4 0C";                // ADD ESP, 12
-
-	// Check if PCNames is a table (guards against nil if Lua files not loaded)
-	p9code += " 6A FF";                   // PUSH -1
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(96));            // CALL lua_type
-	p9code += " 83 C4 08";                // ADD ESP, 8
-	p9code += " 83 F8 05";                // CMP EAX, 5 (LUA_TTABLE)
-	p9code += JNE(Filler(95));             // JNE → fallback (not a table)
-
-	// lua_rawgeti(L, -1, jobid)
-	p9code += " FF 34 24";                // PUSH [ESP] (saved EDX = job ID)
-	p9code += " 6A FF";                   // PUSH -1 (table at Lua stack top)
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(92));            // CALL lua_rawgeti
-	p9code += " 83 C4 0C";                // ADD ESP, 12
-
-	// lua_tolstring(L, -1, NULL) -> EAX = const char*
-	p9code += PUSH_0;                      // PUSH 0 (len ptr = NULL)
-	p9code += " 6A FF";                   // PUSH -1
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(93));            // CALL lua_tolstring
-	p9code += " 83 C4 0C";                // ADD ESP, 12
-
-	// Save result on stack (ECX/EDX are caller-saved, lua_settop clobbers them)
-	p9code += " 50";                        // PUSH EAX (save tolstring result)
-
-	// lua_settop(L, -3) — pop PCNames table + value from Lua stack
-	p9code += " 6A FD";                   // PUSH -3
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(94));            // CALL lua_settop
-	p9code += " 83 C4 08";                // ADD ESP, 8
-
-	// Restore and check result
-	p9code += " 58";                        // POP EAX (restore tolstring result)
-	p9code += " 85 C0";                    // TEST EAX, EAX
-	p9code += JZ(Filler(90));              // JZ fallback
-
-	// Success: return EAX (char* to job name from Lua)
-	p9code += " 5A 59 5B";                // POP EDX; POP ECX; POP EBX
-	p9code += " 5F 5E";                   // POP EDI; POP ESI
-	p9code += FP_STOP;                     // MOV ESP,EBP; POP EBP
-	p9code += " C2 08 00";                // RET 8
-
-	// Nil cleanup: PCNames wasn't a table (not loaded) — pop nil from Lua stack
-	const p9NilCleanupOff = p9code.byteCount();
-	p9code += " 6A FE";                   // PUSH -2
-	p9code += " 53";                       // PUSH EBX (L)
-	p9code += CALL(Filler(94));            // CALL lua_settop
-	p9code += " 83 C4 08";                // ADD ESP, 8
-	// fall through to fallback
-
-	// Fallback: original table lookup (returns "Poring" etc)
-	const p9FallbackOff = p9code.byteCount();
-	p9code += " 5A 59 5B";                // POP EDX; POP ECX; POP EBX
-	p9code += " 8B 04 96";                // MOV EAX, [ESI+EDX*4] (original)
-	p9code += " 5F 5E";                   // POP EDI; POP ESI
-	p9code += FP_STOP;                     // MOV ESP,EBP; POP EBP
-	p9code += " C2 08 00";                // RET 8
-
-	// Data: "PCNames" string
-	const p9StrOff = p9code.byteCount();
-	p9code += " 50 43 4E 61 6D 65 73 00"; // "PCNames\0"
-
-	$$(_, '0716.P9.3', `Allocate and write Lua C API trampoline`)
-	const [p9Phys, p9Vir] = Exe.Allocate(p9code.byteCount(), 0x10);
-
-	const p9Fills = {
-		start: p9Vir,
-		90: p9Vir + p9FallbackOff,     // fallback label
-		91: lua_getfield,              // CALL lua_getfield
-		92: lua_rawgeti,               // CALL lua_rawgeti
-		93: lua_tolstring,             // CALL lua_tolstring
-		94: lua_settop,                // CALL lua_settop
-		95: p9Vir + p9NilCleanupOff,   // nil cleanup (PCNames not loaded)
-		96: 0x51AE20                   // CALL lua_type
-	};
-	Exe.SetHex(p9Phys, SetFillTargets(p9code, p9Fills));
-
-	// Fix up the PUSH &"PCNames" with the absolute address
-	// (Filler system computes relative offsets, but PUSH needs absolute)
-	Exe.SetInt32(p9Phys + p9PushStrOff + 1, p9Vir + p9StrOff);
-
-	$$(_, '0716.P9.4', `Redirect GetJobSpriteIndex table lookup to trampoline`)
-	const movVir = Exe.Phy2Vir(movAddr, CODE);
-	const p9Jmp = SetFillTargets(JMP(Filler(1)), {
-		start: movVir,
-		1: p9Vir
-	});
-	// Replace MOV(3) + epilogue(8) = 11 bytes with JMP(5) + NOPs(6)
-	Exe.SetHex(movAddr, p9Jmp + NOPs(6));
-
 
 	// ============================================================
 	// Phase 9c: Entry-level PCNames hook on GetJobSpriteIndex
@@ -917,16 +786,46 @@ CustomJobs.apply0716 = function(_)
 	p9c += " 5D";                              // POP EBP
 	p9c += " C2 08 00";                       // RET 8
 
-	// .lua_miss: restore and fall through
+	// .lua_miss: restore and proceed to direct table lookup
 	const p9cLuaMissOff = p9c.byteCount();
-	p9c += " 59";                              // POP ECX
-	p9c += " 5A";                              // POP EDX
+	p9c += " 59";                              // POP ECX (this)
+	p9c += " 5A";                              // POP EDX (job ID)
 
-	// .fallthrough: execute original function
+	// .fallthrough: direct table lookup with validation
+	// Bypasses original complex path (GetJobClassType + sex-based lookup)
+	// which can return invalid pointers for some job IDs.
+	// Stack state: EBP frame set up, ECX = this, EDX = job ID
 	const p9cFallthroughOff = p9c.byteCount();
-	p9c += JMP(Filler(318));                   // JMP return (original code at +6)
+	// Table bounds check: count = (this->f8c - this->f88) >> 2
+	p9c += " 8B 81 8C 0F 00 00";             // MOV EAX, [ECX+0xF8C]
+	p9c += " 2B 81 88 0F 00 00";             // SUB EAX, [ECX+0xF88]
+	p9c += " C1 F8 02";                       // SAR EAX, 2
+	p9c += " 39 D0";                          // CMP EAX, EDX
+	p9c += JBE(Filler(319));                  // JBE .poring (out of bounds)
 
-	// .cleanup_nil: pop nil, fall through
+	// In bounds — direct table[jobID] lookup
+	p9c += " 8B 81 88 0F 00 00";             // MOV EAX, [ECX+0xF88]
+	p9c += " 8B 04 90";                       // MOV EAX, [EAX+EDX*4]
+
+	// Validate: non-NULL and looks like a valid pointer (not 0xFFxxxxxx)
+	p9c += " 85 C0";                          // TEST EAX, EAX
+	p9c += JZ(Filler(319));                   // JZ .poring
+	p9c += " 3D 00 00 40 00";                // CMP EAX, 0x00400000
+	p9c += JB(Filler(319));                   // JB .poring
+	p9c += " 3D 00 00 00 F0";                // CMP EAX, 0xF0000000
+	p9c += JAE(Filler(319));                  // JAE .poring
+
+	// Valid — return directly
+	p9c += " 5D";                             // POP EBP
+	p9c += " C2 08 00";                       // RET 8
+
+	// .poring: return "Poring" for invalid/missing entries
+	const p9cPoringOff = p9c.byteCount();
+	p9c += " B8 68 E9 FC 00";                // MOV EAX, 0xFCE968
+	p9c += " 5D";                             // POP EBP
+	p9c += " C2 08 00";                       // RET 8
+
+	// .cleanup_nil: pop nil from Lua stack, fall through to direct lookup
 	const p9cCleanupOff = p9c.byteCount();
 	p9c += " 6A FE";
 	p9c += " A1" + g_luaState.toHex(4);
@@ -951,7 +850,7 @@ CustomJobs.apply0716 = function(_)
 		315: p9cVirA + p9cCleanupOff,
 		316: 0x51AE20,
 		317: p9cVirA + p9cLuaMissOff,
-		318: p9cReturnVir
+		319: p9cVirA + p9cPoringOff
 	}));
 	Exe.SetInt32(p9cPhysA + p9cStrOff + 1, p9cVirA + p9cStrPCNames);
 
@@ -960,125 +859,10 @@ CustomJobs.apply0716 = function(_)
 		start: p9cHookVir, 1: p9cVirA
 	}) + " 90"); // 5-byte JMP + 1 NOP = 6 bytes
 
-	// ============================================================
-	// Phase 9b: Fix "Poring" display name for trans 3rd class jobs
-	// ============================================================
-	// NOTE: The Lua lookup here is redundant — Phase 9c (entry hook)
-	// already checks PCNames before this code path is reached.
-	// The Lua lookup always returns nil; only the fallback "Poring"
-	// return executes. Kept for defense-in-depth.
-
-	$$(_, '0716.P9b.1', `Find GetJobSpriteIndex early "Poring" return`)
-	// When param_2 (job ID) >= table size, GetJobSpriteIndex returns "Poring"
-	// immediately at: POP EDI; MOV EAX,0xFCE968; POP ESI; MOV ESP,EBP; POP EBP; RET 8
-	// This catches ALL jobs with IDs larger than the 0xf88 table (trans 3rd class etc.)
-	// Pattern: POP EDI; MOV EAX,0xFCE968 (the "Poring" string address)
-	const p9bPattern = " 5F B8 68 E9 FC 00 5E";
-	const p9bPhys = Exe.FindHex(p9bPattern);
-	if (p9bPhys < 0)
-		throw Error("Phase 9b: GetJobSpriteIndex Poring return not found");
-
-	// Hook at the MOV EAX (skip POP EDI, we'll handle it in trampoline)
-	const p9bHookPhys = p9bPhys + 1; // +1 to skip POP EDI
-	const p9bHookVir = Exe.Phy2Vir(p9bHookPhys, CODE);
-	// Return to POP ESI (after MOV EAX,imm32 = 5 bytes)
-	const p9bReturnVir = p9bHookVir + 5;
-
-	$$(_, '0716.P9b.2', `Build early-Poring Lua lookup trampoline`)
-	let p9b = "";
-	// EDX = original job ID (param_2, set at function entry 0xd5bb43)
-	// Try PCNames[EDX] from Lua before returning "Poring"
-
-	p9b += " A1" + g_luaState.toHex(4);       // MOV EAX, [g_luaState]
-	p9b += " 85 C0";                           // TEST EAX, EAX
-	p9b += JZ(Filler(301));                    // JZ .no_lua → return Poring
-
-	// lua_getfield(L, GLOBALS, "PCNames")
-	const p9bStrOff = p9b.byteCount();
-	p9b += " 68 00 00 00 00";                 // PUSH &"PCNames" (fixup)
-	p9b += " 68 EE D8 FF FF";                 // PUSH LUA_GLOBALSINDEX
-	p9b += " 50";                              // PUSH EAX (L)
-	p9b += CALL(Filler(302));                  // CALL lua_getfield
-	p9b += " 83 C4 0C";                       // ADD ESP, 12
-
-	// lua_type check
-	p9b += " 6A FF";
-	p9b += " A1" + g_luaState.toHex(4);
-	p9b += " 50";
-	p9b += CALL(Filler(306));                  // CALL lua_type
-	p9b += " 83 C4 08";
-	p9b += " 83 F8 05";                       // CMP EAX, 5 (LUA_TTABLE)
-	p9b += JNE(Filler(305));                   // JNE .cleanup_nil
-
-	// lua_rawgeti(L, -1, EDX=jobID)
-	p9b += " 52";                              // PUSH EDX (job ID)
-	p9b += " 6A FF";                           // PUSH -1
-	p9b += " A1" + g_luaState.toHex(4);
-	p9b += " 50";
-	p9b += CALL(Filler(303));                  // CALL lua_rawgeti
-	p9b += " 83 C4 0C";
-
-	// lua_tolstring
-	p9b += PUSH_0;
-	p9b += " 6A FF";
-	p9b += " A1" + g_luaState.toHex(4);
-	p9b += " 50";
-	p9b += CALL(Filler(304));                  // CALL lua_tolstring
-	p9b += " 83 C4 0C";
-
-	// Save result in EDX (caller-saved, we're about to return anyway)
-	p9b += " 89 C2";                           // MOV EDX, EAX
-
-	// lua_settop(L, -3)
-	p9b += " 6A FD";
-	p9b += " A1" + g_luaState.toHex(4);
-	p9b += " 50";
-	p9b += CALL(Filler(307));                  // CALL lua_settop
-	p9b += " 83 C4 08";
-
-	// Check result
-	p9b += " 85 D2";                           // TEST EDX, EDX
-	p9b += JZ(Filler(301));                    // JZ .no_lua
-	p9b += " 89 D0";                           // MOV EAX, EDX (Lua result → return value)
-	p9b += JMP(Filler(308));                   // JMP return (POP ESI etc.)
-
-	// .no_lua: return "Poring"
-	const p9bNoLuaOff = p9b.byteCount();
-	p9b += " B8 68 E9 FC 00";                 // MOV EAX, 0xFCE968 ("Poring")
-	p9b += JMP(Filler(308));                   // JMP return
-
-	// .cleanup_nil: pop nil, fall through to no_lua
-	const p9bCleanupOff = p9b.byteCount();
-	p9b += " 6A FE";
-	p9b += " A1" + g_luaState.toHex(4);
-	p9b += " 50";
-	p9b += CALL(Filler(307));
-	p9b += " 83 C4 08";
-	p9b += JMP(Filler(301));                   // JMP .no_lua
-
-	// String data
-	const p9bStrPCNames = p9b.byteCount();
-	p9b += " 50 43 4E 61 6D 65 73 00";        // "PCNames\0"
-
-	$$(_, '0716.P9b.3', `Allocate and write Phase 9b trampoline`)
-	const [p9bPhysA, p9bVirA] = Exe.Allocate(p9b.byteCount(), 4);
-	Exe.SetHex(p9bPhysA, SetFillTargets(p9b, {
-		start: p9bVirA,
-		301: p9bVirA + p9bNoLuaOff,
-		302: lua_getfield,
-		303: lua_rawgeti,
-		304: lua_tolstring,
-		305: p9bVirA + p9bCleanupOff,
-		306: 0x51AE20,                       // lua_type
-		307: lua_settop,
-		308: p9bReturnVir
-	}));
-	Exe.SetInt32(p9bPhysA + p9bStrOff + 1, p9bVirA + p9bStrPCNames);
-
-	$$(_, '0716.P9b.4', `Redirect early Poring return to trampoline`)
-	Exe.SetHex(p9bHookPhys, SetFillTargets(JMP(Filler(1)), {
-		start: p9bHookVir, 1: p9bVirA
-	})); // exactly 5 bytes (MOV EAX,imm32 → JMP rel32)
+	// Phase 9b (Poring return hook) removed — Phase 9c handles all paths.
+	// Phase 9b previously hooked the "Poring" early return in GetJobSpriteIndex.
+	// Now redundant because Phase 9c intercepts at function entry and returns
+	// directly with a validated table lookup (out-of-bounds → "Poring").
 
 	// ============================================================
 	// Phase 10: Extend is_job_id_in_range for custom jobs

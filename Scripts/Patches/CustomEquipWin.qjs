@@ -26,7 +26,7 @@
 *   Author(s)     : Functor, CH.C (jchcc), Andrei (4144), X-EcutiOnner,    *
 *                    CrazyBebop                                            *
 *   Created Date  : 2020-11-11                                             *
-*   Last Modified : 2026-03-09                                             *
+*   Last Modified : 2026-03-27                                             *
 *                                                                          *
 \**************************************************************************/
 
@@ -236,4 +236,87 @@ NoEquipWinTitle.validate = function()
 {
 	if (Exe.BuildDate >= 20240000) return true;
 	return (ROC.IsRenewal && Exe.BuildDate >= 20141126) || Exe.BuildDate >= 20150225;
+};
+
+/**************************************************************************\
+*                                                                          *
+*   Copyright (C) 2020-2024 Functor                                        *
+*   Copyright (C) 2020-2024 CH.C (jchcc)                                   *
+*   Copyright (C) 2020-2024 Andrei Karas (4144)                            *
+*   Copyright (C) 2020-2024 X-EcutiOnner (xex.ecutionner@gmail.com)        *
+*   Copyright (C) 2026 CrazyBebop                                          *
+*                                                                          *
+*   This file is a part of WARP project (specific to RO clients)           *
+*                                                                          *
+*   WARP is free software: you can redistribute it and/or modify           *
+*   it under the terms of the GNU General Public License as published by   *
+*   the Free Software Foundation, either version 3 of the License, or      *
+*   (at your option) any later version.                                    *
+*                                                                          *
+*   This program is distributed in the hope that it will be useful,        *
+*   but WITHOUT ANY WARRANTY; without even the implied warranty of         *
+*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the          *
+*   GNU General Public License for more details.                           *
+*                                                                          *
+*   You should have received a copy of the GNU General Public License      *
+*   along with this program.  If not, see <http://www.gnu.org/licenses/>.  *
+*                                                                          *
+*                                                                          *
+|**************************************************************************|
+*                                                                          *
+*   Author(s)     : Functor, CH.C (jchcc), Andrei (4144), X-EcutiOnner,   *
+*                    CrazyBebop                                            *
+*   Created Date  : 2026-03-27                                             *
+*   Last Modified : 2026-03-27                                             *
+*   Thanks        : Gerzzie (RDL)                                           *
+*                                                                          *
+\**************************************************************************/
+
+///
+/// \brief Hides the Equipment Attribute button from the Equipment Window by
+///        NOPing its AddChildDirect call. The button object is still created
+///        (so no crashes) but never added to the window, making it invisible.
+///
+DisableEquipAttrButton = function(_)
+{
+	$$(_, 1, `Find the Equipment Attribute button bitmap string`);
+	const bmpVA = Exe.FindText(
+		"\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\btn_e_ability_a.bmp"
+	);
+	if (bmpVA < 0)
+		throw Error("btn_e_ability_a.bmp string not found");
+
+	$$(_, 2, `Find PUSH of the bitmap string in code`);
+	const pushAddr = Exe.FindHex(PUSH(bmpVA));
+	if (pushAddr < 0)
+		throw Error("PUSH btn_e_ability_a not found in code");
+
+	$$(_, 3, `Find the AddChildDirect call after button setup`);
+	// Pattern: PUSH [reg+disp32] + MOV ECX,reg + CALL AddChildDirect
+	const addChildPattern =
+		" FF B7 78 01 00 00"  // PUSH [EDI+0x178]
+	+	" 8B CF"              // MOV ECX, EDI
+	+	CALL()                // CALL AddChildDirect
+	;
+	const addr = Exe.FindHex(addChildPattern, pushAddr, pushAddr + 0xC0);
+	if (addr < 0)
+		throw Error("AddChildDirect call for attribute button not found");
+
+	$$(_, 4, `Replace PUSH+MOV+CALL with stack-safe skip`);
+	// Replace the 6-byte PUSH with ADD ESP,-4 (83 EC 04) + 3 NOPs to keep stack balanced,
+	// then keep MOV ECX,EDI as-is, then replace CALL with ADD ESP,4 (83 C4 04) + 2 NOPs.
+	// Net stack effect: -4 + 4 = 0. AddChild never called.
+	Exe.SetHex(addr, " 83 EC 04 90 90 90 8B CF 83 C4 04 66 90");
+
+	return true;
+};
+
+///
+/// \brief Disable for unsupported clients - need the Equipment Attribute button bitmap
+///
+DisableEquipAttrButton.validate = function()
+{
+	return Exe.FindText(
+		"\xC0\xAF\xC0\xFA\xC0\xCE\xC5\xCD\xC6\xE4\xC0\xCC\xBD\xBA\\basic_interface\\btn_e_ability_a.bmp"
+	) > 0;
 };

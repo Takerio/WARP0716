@@ -21,9 +21,10 @@
 *                                                                          *
 |**************************************************************************|
 *                                                                          *
-*   Author(s)     : Ai4rei/AN, Neo-Mind                                    *
+*   Author(s)     : Ai4rei/AN, Neo-Mind, CrazyBebop                        *
 *   Created Date  : 2021-02-24                                             *
-*   Last Modified : 2024-08-21                                             *
+*   Last Modified : 2026-03-29                                             *
+*   Modified By   : CrazyBebop                                             *
 *                                                                          *
 \**************************************************************************/
 
@@ -33,10 +34,74 @@
 IncrHairs = function(_)
 {
 	this.stage1(_); //for the head sprites & palettes
-	if (Exe.Version > 6)
-		this.stage2(_); //for the mid-headgear sprites dependent on hairstyles.
+	if (Exe.Version > 6 && Exe.BuildDate < 20200101)
+		this.stage2(_); //for the mid-headgear sprites dependent on hairstyles (old clients only)
+
+	if (Exe.BuildDate >= 20200101)
+		this.stage2_open(_); //open-source replacement for 2020+ clients (CustomJobs compatible)
 
 	return true;
+};
+
+///
+/// \brief Open-source stage2 replacement for mid-headgear hair style clamping.
+/// Hooks GetJobName's male/female hair table accesses.
+/// For hair styles > TABLE_SIZE, defaults to index 1.
+///
+IncrHairs.stage2_open = _ =>
+{
+	const patchName = `${_} (Stage 2 Open)`;
+
+	$$(patchName, 1, `Find the male hair table access in GetJobName`)
+	// GetJobName reads from DAT_015fb30c (male) at VA 0xB41EEF
+	// and DAT_015fb318 (female) at VA 0xB41F0D
+	// Pattern: MOV EAX, [global_addr] followed by MOV EDX, [EAX + ECX*4]
+	const malePat = " A1" + (0x015fb30c).toHex(4) + " 8B 14 88";
+	const femalePat = " A1" + (0x015fb318).toHex(4) + " 8B 14 88";
+
+	const maleAddr = Exe.FindHex(malePat);
+	const femaleAddr = Exe.FindHex(femalePat);
+
+	if (maleAddr < 0 || femaleAddr < 0)
+	{
+		// Pattern not found — skip stage2 (non-critical)
+		return;
+	}
+
+	$$(patchName, 2, `Build hook code for each site`)
+	const hookSites = [
+		{ addr: maleAddr, tableGlobal: 0x015fb30c },
+		{ addr: femaleAddr, tableGlobal: 0x015fb318 }
+	];
+
+	const TABLE_LIMIT = 0x2B; // 43 entries in hair table (indices 0-42)
+
+	hookSites.forEach( (site, i) =>
+	{
+		const retVir = Exe.Phy2Vir(site.addr + 8, CODE); // after 5-byte MOV + 3-byte table lookup
+
+		// Hook: load table, check bounds, clamp if needed, do table lookup, return
+		const hookCode =
+			" A1" + site.tableGlobal.toHex(4)  // MOV EAX, [table_global]  (5 bytes)
+		+	" 83 F9" + TABLE_LIMIT.toHex(1)    // CMP ECX, 43             (3 bytes)
+		+	" 7E 03"                            // JLE +3 → skip clamp    (2 bytes)
+		+	" 33 C9"                            // XOR ECX, ECX            (2 bytes)
+		+	" 41"                               // INC ECX → ECX = 1      (1 byte)
+		+	" 8B 14 88"                         // MOV EDX, [EAX+ECX*4]   (3 bytes)
+		+	" E9 00 00 00 00"                   // JMP retVir             (5 bytes)
+		;
+
+		const [hookPhy, hookVir] = Exe.Allocate(hookCode.byteCount(), 0x10);
+		Exe.SetHex(hookPhy, hookCode);
+
+		// Patch JMP back: at offset 16, rel32 = retVir - (hookVir + 21)
+		Exe.SetInt32(hookPhy + 17, retVir - (hookVir + 21));
+
+		// Redirect original code to hook (overwrite 5-byte MOV + 3-byte table lookup = 8 bytes)
+		const addrVir = Exe.Phy2Vir(site.addr, CODE);
+		Exe.SetHex(site.addr, " E9" + (hookVir - (addrVir + 5)).toHex(4));
+		Exe.SetNOPs(site.addr + 5, 3); // NOP remaining 3 bytes
+	});
 };
 
 ///
@@ -163,13 +228,75 @@ IncrHairs.stage1 = patchName =>
 		Exe.SetHex(ins.Addr, ins);
 	};
 
+	/// Conditional fixTbl for 2020+ clients with remapped hair tables.
+	/// Preserves original table lookup for indices < 43, uses itoa for 43+.
+	let itoaVir = 0;
+	let itoaBufVir = 0;
+	const TABLE_SIZE = 0x2B;
+
+	const fixTblCond = (addr) =>
+	{
+		if (itoaVir === 0)
+		{
+			const [bufPhy, bufVir] = Exe.Allocate(16, 0x10);
+			Exe.SetHex(bufPhy, "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00");
+			itoaBufVir = bufVir;
+
+			const itoaBody =
+				" 60"
+			+	" BF" + (bufVir + 15).toHex(4)
+			+	" C6 07 00"
+			+	" 8B C1"
+			+	" B9 0A 00 00 00"
+			+	" 33 D2"
+			+	" F7 F1"
+			+	" 80 C2 30"
+			+	" 4F"
+			+	" 88 17"
+			+	" 85 C0"
+			+	" 75 F2"
+			+	" 89 7C 24 14"
+			+	" 61"
+			+	" C3"
+			;
+			const [itoaPhy, itoaVirAddr] = Exe.Allocate(itoaBody.byteCount(), 0x10);
+			Exe.SetHex(itoaPhy, itoaBody);
+			itoaVir = itoaVirAddr;
+		}
+
+		const retVir = Exe.Phy2Vir(addr + 5, CODE);
+		const origBytes = Exe.GetHex(addr, 5);
+		const origMov = Exe.GetHex(addr + 3, 2);
+
+		const hookCode =
+			" 83 F9" + TABLE_SIZE.toHex(1)
+		+	" 7D 0A"
+		+	origBytes
+		+	" E9 00 00 00 00"
+		+	" E8 00 00 00 00"
+		+	origMov
+		+	" E9 00 00 00 00"
+		;
+
+		const [hookPhy, hookVir] = Exe.Allocate(hookCode.byteCount(), 0x10);
+		Exe.SetHex(hookPhy, hookCode);
+
+		Exe.SetInt32(hookPhy + 11, retVir - (hookVir + 15));
+		Exe.SetInt32(hookPhy + 16, itoaVir - (hookVir + 20));
+		Exe.SetInt32(hookPhy + 23, retVir - (hookVir + 27));
+
+		const addrVir = Exe.Phy2Vir(addr, CODE);
+		Exe.SetHex(addr, " E9" + (hookVir - (addrVir + 5)).toHex(4));
+	};
+
 	strAddrs.forEach( (memAddr, idx) =>
 	{
 		const __ = `${_} [${idx}]`;
 
 		const isLast = idx === strAddrs.length-1;
+		const useCondTable = (Exe.BuildDate >= 20200101);
 
-		if (!isLast || !isPalShared)
+		if (!useCondTable && (!isLast || !isPalShared))
 		{
 			$$(__, 4.1, `Retrieve the string & get the position of the 2nd %s`)
 			const fmt = Exe.GetText(memAddr);
@@ -305,9 +432,13 @@ IncrHairs.stage1 = patchName =>
 			throw Error("Table fetchers not found");
 
 		$$(__, 4.12, `Fix the tables`)
-		addrs.forEach( fixTbl );
+		addrs.forEach( useCondTable ? fixTblCond : fixTbl );
 
-		if (!isLast || !isPalShared)
+		if (useCondTable)
+		{
+			/// fixTblCond keeps %s format — no section 5 hook needed
+		}
+		else if (!isLast || !isPalShared)
 		{
 			if (isLast)
 				Exe.BeginTag('SHP');
@@ -445,6 +576,7 @@ IncrHairs.stage1 = patchName =>
 				Exe.EndTag();
 		}
 	});
+
 };
 
 ///

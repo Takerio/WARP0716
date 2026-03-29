@@ -20,9 +20,9 @@
 #                                                                          #
 ############################################################################
 #                                                                          #
-#   Author(s)     : Neo-Mind                                               #
+#   Author(s)     : Neo-Mind, CrazyBebop                                   #
 #   Created Date  : 2020-08-26                                             #
-#   Last Modified : 2022-09-24                                             #
+#   Last Modified : 2026-03-29                                             #
 #                                                                          #
 ############################################################################
 
@@ -58,7 +58,7 @@ CharCreation:
         - IncrNewCharHairs:
             title : Increase char create Hair limits
             recommend : no
-            author : Neo-Mind
+            author : Neo-Mind, CrazyBebop
             desc : Raises the maximum hairstyle and hair color options available during character creation to custom values. Required for servers with more hair options than the default client supports.
         
         - CustomCharCreateId:
@@ -123,6 +123,12 @@ CustomEquipWin:
             recommend : no
             author : CH.C (jchcc), Andrei Karas (4144) , X-EcutiOnner
             desc : Removes the title bar text from the equipment window. A cosmetic change for a cleaner equipment window appearance.
+
+        - DisableEquipAttrButton:
+            title : Disable Equipment Attribute Button
+            recommend : no
+            author : Functor, CH.C (jchcc), Andrei (4144), X-EcutiOnner, CrazyBebop
+            desc : Disables the Equipment Attribute (Properties) button in the Equipment Window so clicking it does nothing. Use on servers where the Equipment Properties panel is not applicable.
 
 CustomExpBars:
     title : EXP BAR CUSTOMIZATION

@@ -82,7 +82,6 @@ patches:
     - HideBuildInfo
     - FixArrowsCharset
     - TranslateClient
-    - TranslateTaekwon
     - NoGGuard
     - MsgStrings
     - QuestDisplay

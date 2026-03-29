@@ -20,9 +20,9 @@
 #                                                                          #
 ############################################################################
 #                                                                          #
-#   Author(s)     : Neo-Mind                                               #
+#   Author(s)     : Neo-Mind, CrazyBebop                                   #
 #   Created Date  : 2020-08-26                                             #
-#   Last Modified : 2024-09-27                                             #
+#   Last Modified : 2026-03-29                                             #
 #                                                                          #
 ############################################################################
 
@@ -189,12 +189,6 @@ CustomData:
             recommend : yes
             author : Ai4rei/AN , Neo-Mind
             desc : Replaces hardcoded Korean text strings in the client with translations from a mapping file (defaults to <b>Translations_EN.yml</b>). Covers system messages, UI labels, and other text that cannot be changed through lua or txt files.
-        
-        - TranslateTaekwon:
-            title : Translate taekwon names
-            recommend : yes
-            author : Ai4rei/AN , Neo-Mind
-            desc : Translates the hardcoded Korean names of Taekwon class jobs (Taekwon Kid, Star Gladiator, Soul Linker) to their English equivalents.
         
         - CustomCaptchaDecomp:
             title : Customize Captcha Decomp size

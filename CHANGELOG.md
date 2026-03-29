@@ -1,36 +1,69 @@
-# CrazyBebop — 2025-07-16 build (Mar 19, 2026)
+# CrazyBebop — 2025-07-16 build (Mar 29, 2026)
+
+## Mar 29 Update
+
+### Allow 65k Hair Styles — Fixed
+Fixed a bug where the first ~12 hair styles displayed the wrong sprite when `Allow65kHairs` was enabled. The 07-16 client has a remapped hair name table internally, and the original patch bypassed it. The fix preserves the table for standard styles and uses dynamic number conversion for custom styles beyond 42.
+
+- Works correctly on the character creation screen, character select, and in-game
+- Works independently of Custom Jobs, and both can be enabled together
+- Includes an open-source mid-headgear hook replacing the old encrypted one
+- `IncreaseHairsLimit` has been removed (superseded)
+
+## Mar 26 Update
+
+### InsensitiveStorageSearch — Fixed ([#16](https://github.com/CrazyBebop/WARP0716/issues/16))
+Case-insensitive storage search wasn't working on the 07-16 client. The patch was matching the wrong function internally. Fixed with an updated pattern for the 07-16 compiler.
+
+### Custom Jobs — Ground Skill Crash Fix
+Using ground-based skills (like Storm Gust) on mobs caused a crash when Custom Jobs was enabled. Fixed — the sprite name lookup now uses a safer code path with validation. All standard and custom jobs work correctly.
+
+### Cancel-Exit on Service Select
+The server select screen is now fully functional. Previously the cancel button did nothing — now it shows a "Are you sure you want to quit?" dialog and exits the client. The cancel button also automatically changes to say "exit" when on this screen. No extra files needed — the exit button graphics already exist in the GRF.
+
+### Multi-Connection clientinfo.xml — Fixed
+Servers with multiple entries in `clientinfo.xml` now work correctly. Previously all connections went to the first entry's IP regardless of which server the player selected. Now each server entry's address and port are stored separately, and the client connects to the right one based on the player's selection.
+
+Combined with the cancel-exit fix above, you can now list multiple servers and players will see the server select screen, pick their server, and connect to the correct one.
+
+### DisableEquipAttrButton — Fixed ([#12](https://github.com/CrazyBebop/WARP0716/issues/12))
+Hides the equipment attribute button in the equipment window. The original patch didn't work on the 07-16 client. Fixed by NOPing the AddChild call that adds the button.
+
+### Removed Patches
+The following patches have been removed — they don't apply to the 07-16 client:
+
+- **TranslateTaekwon** — Not needed, `TranslateClient` + Lua handles translations instead
+- **IncreaseHairsLimit** — Replaced by Allow65kHairs
+- **NoSerialDisplay** — Not compatible with the 07-16 client
+- **SelectLoginBG** — Not compatible with the 07-16 client
+- **RestoreAutoFollow** — Only applies to Zero clients
+
+---
 
 ## Mar 19 Update
 
 ### Enable Official Custom Fonts (Reforged) — Full Rewrite
-Microsoft's T2Embed API (`TTLoadEmbeddedFont`) is broken on modern Windows — it returns `E_T2NOFREEMEMORY` (0x200) for all `.eot` files because support for the MicroType Express (MTX) compressed font format was removed in newer Windows versions. The original `EnableEotFonts` patch only NOP'd the langtype check, which did nothing since T2Embed silently fails anyway.
+The original `EnableEotFonts` patch didn't work on modern Windows because Microsoft removed support for the embedded font format (`.eot`) that the RO client uses. The patch appeared to apply but fonts never actually loaded.
 
-This rewrite bypasses T2Embed entirely and loads fonts through the standard Windows font API:
+This rewrite takes a completely different approach — it loads `.ttf` fonts directly through the standard Windows font API, the same way the client already loads its SCDream fonts.
 
-- **Font loading** — Hooks `InitGameSubsystems` to load `.ttf` font files via `AddFontResourceExA` (the same API the client already uses for SCDream `.otf` fonts)
-- **Face name fix** — The binary uses filenames like `"RixSquirrel_10.eot"` as `CreateFontIndirectA` face names, but `.ttf` fonts register without the `.eot` extension. The patch strips `.eot` from all 11 face name strings at patch time
-- **NHCgogo mismatch** — The EOT header says `"RixNHCgogo_10"` but the TTF data inside has `"NHCgogo_10"` (no Rix prefix). The patch corrects this name mismatch
+- **How it works** — When the client starts up, the patch loads all `.ttf` files from `System\Font\` before any UI renders. It also fixes the font name references in the binary so `CreateFont` calls match the `.ttf` filenames
 - **Font file management** — On apply, WARP prompts for your client folder, copies the included `.ttf` fonts to `System\Font\`, and optionally deletes the old `.eot` files
-- **Custom fonts** — Users can replace any `.ttf` in `System\Font\` with their own font (same filename). `@font 1-9` uses whatever `.ttf` is there — it's client-side only, no one else sees your fonts
-- **FixFontsCharset dependency** — Auto-enables `FixFontsCharset` (which was also fixed — the original clobbered the EDI register, crashing `MultiByteToWideChar`)
+- **Custom fonts** — You can replace any `.ttf` in `System\Font\` with your own font (same filename). `@font 1-9` uses whatever `.ttf` is there — it's client-side only, no one else sees your fonts
+- **FixFontsCharset** — Auto-enables `FixFontsCharset` which had a crash bug in the original version (now fixed)
 
 Pre-converted `.ttf` files for all 13 fonts are included in `Inputs/Fonts/`.
 
-**Renamed:** `EnableEotFonts.qjs` → `EnableCustomFonts.qjs`
+**Renamed:** `EnableEotFonts` → `EnableCustomFonts`
 
 ### FixFontsCharset — Crash Fix
-- The original patch used `MOV EDI, [LANGTYPE]` in its trampoline, clobbering the callee-saved EDI register. This corrupted `CTextRenderer__MeasureTextExtent`'s `this` pointer, causing an access violation in `MultiByteToWideChar`
-- Fixed by using EAX as the temp register instead of EDI (`MOV EAX, [LANGTYPE]` + `MOVZX EAX, BYTE [EAX + csTbl]`)
-
-### EnableEotFonts (original) — Pattern Fix
-- The original `POS3WC` pattern only matched addresses with high byte `0x00`. The 07-16 binary has addresses in the `0x01xxxxxx` range, so the correct match in `InitGameSubsystems` was skipped and the patch hit `CTimedEventMgr__PlayQuestEffect` instead — a completely unrelated function
-- Fixed with `POS4WC` fallback (now superseded by the full rewrite above)
+The original version of this patch had a bug that corrupted an internal pointer, causing random crashes when rendering text. Fixed by using a different register for the charset lookup.
 
 ## Mar 18 Update
 
 ### Custom Jobs (Reforged) — Major Update
 
-The Custom Jobs patch has been significantly expanded with 19 binary phases — all built from scratch for the 07-16 client. This update adds baby class support, multi-tier skill trees, mount integration, and much more.
+The Custom Jobs patch has been significantly expanded — all built from scratch for the 07-16 client. This update adds baby class support, multi-tier skill trees, mount integration, and much more.
 
 **What's new for server owners:**
 - **Baby class support** — Baby variants of custom jobs now render at 75% size, just like official baby classes. Add your baby job IDs to `Shrink_Map` in PCIds.lua
@@ -41,28 +74,24 @@ The Custom Jobs patch has been significantly expanded with 19 binary phases — 
 - **Working example** — The `example/` folder and WARP Inputs include a complete EXAMPLE_JOB (ID 4435) with a baby variant (ID 4436), ready to copy into your client
 
 **Technical details:**
-- 19 binary phases covering: job name tables, sprite paths, palette/head expansion, bounds checking, sprite subtraction fix, null crash protection, Korean/English name display, range checks, Lua C API lookups, costume fallback, weapon sprites, and baby scaling
-- All Lua lookups use direct Lua C API calls at runtime, bypassing the broken `CLua::CallScriptFunction` in the 07-16 client
+- All Lua lookups use direct Lua C API calls at runtime, bypassing a broken internal function in the 07-16 client
 - Palette and head sprite tables expanded to support up to 10,000 custom job classes
 - Costume_1 sprite files are required for custom jobs (client crashes without them after ~1 minute)
-- Dead code stripped from the patch script (3270 → 1950 lines, -40% smaller)
 - Patch renamed to "Enable Custom Jobs (Reforged)"
 
 **Guide:** See the [Custom Jobs Guide](docs/CustomJobs/CUSTOM_JOBS_GUIDE.html) or [online version](https://legacygamers.net/docs/public/customjobs-reforged/) for full setup instructions with examples.
 
 ### IncreaseHairsLimit (64K Hair Patch) — Compatibility Fix
 - The hair limit patch now works alongside Custom Jobs without crashing
-- Previously, both patches modified the same memory locations, causing a conflict on startup
-- When Custom Jobs is enabled, the hair patch only removes the hair limit checks (Custom Jobs already handles table expansion). When used standalone, it uses its own resize hooks
-- The hair patch now requires Custom Jobs to be enabled first (`needs: CustomJobs` dependency)
+- Previously both patches conflicted with each other, causing a crash on startup
+- **Note:** This patch was later replaced by `Allow65kHairs` in the Mar 26 update
 
 ## Mar 13 Update
 
 ### Custom Jobs — Initial Release
-- Full rewrite of the Custom Jobs patch for the 07-16 client — all 10 phases working
+- Full rewrite of the Custom Jobs patch for the 07-16 client
 - Job names, sprite paths, palettes, head sprites, and display names all driven by Lua files
-- Palette and head sprite tables expanded to support up to 10,000 custom job classes
-- Display names loaded at runtime via Lua C API (bypasses broken CLua::CallScriptFunction in 07-16)
+- Supports up to 10,000 custom job classes
 - Custom job sprites render correctly in character select, creation, and in-game
 - Example sprite, IMF, and icon files included in `docs/CustomJobs/example/`
 
@@ -74,96 +103,73 @@ The Custom Jobs patch has been significantly expanded with 19 binary phases — 
 
 ### RagHash.dat Crash Fix
 - Stale or leftover `RagHash.dat` in the client folder no longer crashes the client
-- Added steps 4.9–4.12 to NoGGuard (`DisableProtect.qjs`): patches the CGGHashMgr Constructor to skip file loading, and stubs `FindByFileHash`/`FindByHashPair` to return success
-- No more need to manually delete `RagHash.dat`
+- The NoGGuard patch now handles this automatically — no more need to manually delete the file
 
 ### GRFsFromIni Crash Fix
 - Invalid or nonexistent GRF entries in `DATA.INI` no longer crash the client
-- Added `GetFileAttributesA` file existence check before `AddPak` in `MultiGRFs.qjs`
+- The patch now checks if each GRF file exists before trying to load it
 
 ## Mar 11 Update
 
 ### CustomIcon — Fixed
-- Rewrote `EnableIcon.qjs` to support any icon size and bit depth (including 256x256 32bpp PNG)
-- Original upstream script only accepted 8bpp 32x32 icons
-- Now targets Group 123 (main app icon group) and allocates new PE space for oversized icons
+- Custom icons now work with any size and bit depth, including 256x256 PNG icons
+- The original version only accepted tiny 32x32 icons
 - All icon display contexts (Explorer, taskbar, window title) show the custom icon
 
 ## Mar 10 Update
 
 ### CustomJobs — Complete for 07-16
-- Build-specific `apply0716()` implementation for the 07-16 client's ESI-indirect table structure
-- **Phase 1:** Job display names — hooks `LoadJobNameTable` with POS4WC addresses, custom POP endTester, limit 0x1109
-- **Phase 2:** Sprite paths — hooks male (this+0x5274) and female (this+0xF64) sprite tables in `InitJobSpriteNameTables`
-- **Phase 3:** Palette + head tables — hooks palette male/female (this+0xF4C/0xF58, capacity 43) and head male/female (this+0x616C/0x6178, capacity 11), with straggler NOPing for compiler-interleaved last entries
-- **IMF:** Not applicable — 07-16 has no separate IMF prefix table (removed/merged by Gravity). PCImfs Lua still loaded for compatibility
-- All job tables now driven by Lua files (`PCIds`, `PCPaths`, `PCImfs`, `PCHands`, `PCPals`, `PCNames`, `PCFuncs`) — add custom jobs without binary patching
+- All job tables now driven by Lua files (`PCIds`, `PCPaths`, `PCImfs`, `PCHands`, `PCPals`, `PCNames`, `PCFuncs`) — add custom jobs without any additional binary patching
 
 ### Dead Code Cleanup
-- **DisableProtect** — Removed dead code from multi-patch script
-- **DisableEncr** — Removed dead code from multi-patch script
-- **DisableEffect** — Removed dead code from multi-patch script
-- 20 dead/unreachable patch definitions removed
+- Removed unused code and 20 dead patch definitions that weren't applicable to 07-16
 
 ### Upstream Merge (hiphop9/Warp2025)
 - Merged 5 commits from Mar 7–10
 
 ### Patch Descriptions Rewritten
-- All 9 patch YAML files rewritten with clear, user-friendly descriptions
+- All patch YAML files rewritten with clear, user-friendly descriptions
 - Every patch now explains what it does, why you'd want it, and any requirements or conflicts
-- Added `<b>WARNING:</b>` tags for patches that conflict with each other
 
 ### Known Conflict: NoPassEncr vs UseSSOLogin
-- **NoPassEncr** ("Disable Login password encryption") has a dependency on **UseOldLogin** (`needs: UseOldLogin`)
-- If both **UseSSOLogin** and **NoPassEncr** are enabled, UseOldLogin silently overwrites UseSSOLogin's patch, causing SSO login to fail (client sends 0x64 instead of 0x825)
-- The WARP GUI handles this correctly via the LoginMode mutex group — selecting one auto-deselects the other
-- **For YAML/console profiles:** do not list both UseSSOLogin and NoPassEncr in the same profile
+- Don't enable both `UseSSOLogin` and `NoPassEncr` in the same profile — they conflict. The WARP GUI handles this automatically, but if you're using YAML profiles, only list one or the other
 
 ---
 
 # CrazyBebop — 2025-07-16 build (Mar 9, 2026)
 
 ## Patch Fixes (15 total, 0 errors remaining)
-- **CallKoreaClientInfo** — Delta fallback + inline Korea pattern + JMP redirect for 07-16
-- **NoEarthQuake** — `.bmp` case-insensitive match was hitting wrong string in 07-16; skip to `.png` directly
-- **NoEquipWinTitle** — Window struct offsets shifted +0x20 for 07-16 (0x100→0x120, 0xD0→0xF0)
-- **CustomShields** — VS2022 removed MOV between PUSH 5 and CALL; date guard added
-- **CustomCharCreateId** — NEG2WC instead of WCn for VC14.29 EBP offsets
-- **IgnoreEntryQueueErr** — VS2022 extra MOV + POS4WC for Load Failed string
-- **MoveUpItemCount** — VS2022 uses CMOVNC+LEA instead of XOR+ADD
-- **CustomFriendsLimit** — Register EBX→EDI + VC14.29 IDIV branch (disabled: UIMessengerGroupWnd removed)
-- **AllowSkillSpam** — `$$` step IDs needed string quotes (`3.3b`→`'3.3b'`)
-- **CustomMissingLauncherMsg** — Validate fallback for non-_RE string + MOV pattern fix
-- **LowCamAngle / MediumCamAngle / HighCamAngle** — POS3WC→POS4WC for 07-16
-- **HideBuildInfo** — Plaintext .qjs rewrite of upstream encrypted .ejs
+15 patches were fixed to work with the 07-16 client's compiler differences (VS2022/VC14.29). Each patch had byte patterns or memory offsets that didn't match the 07-16 binary:
+
+- **CallKoreaClientInfo**, **NoEarthQuake**, **NoEquipWinTitle**, **CustomShields**, **CustomCharCreateId**, **IgnoreEntryQueueErr**, **MoveUpItemCount**, **CustomFriendsLimit**, **AllowSkillSpam**, **CustomMissingLauncherMsg**, **LowCamAngle / MediumCamAngle / HighCamAngle**, **HideBuildInfo**
 
 ## Removed Patches (already baked into the EXE)
 - **NoLoginOTP** — OTP login flow is already patched in the EXE before WARP
 - **EnableDnsSupport** — Server addressing via clientinfo.xml is already handled in the EXE
-- **HidePacketsFromPEEK** — 07-16 natively resolves send/recv dynamically, bypassing PEEK
+- **HidePacketsFromPEEK** — 07-16 natively handles this, no patch needed
 
 ## Removed Patches (not applicable to 07-16)
 - **NoFilenameCheck** — Gravity removed the filename check entirely in 07-16
-- **CustomFriendsLimit** — UIMessengerGroupWnd was removed in 07-16. The friends window no longer displays a count/limit ratio, so there's nothing to patch. Patch definition and code removed from this WARP build
-- **NoGNJoyLaunch** — GNJoy launch URLs are already zeroed in the EXE. Patch script removed
+- **CustomFriendsLimit** — The friends list UI was redesigned in 07-16, nothing to patch
+- **NoGNJoyLaunch** — GNJoy launch URLs are already zeroed in the EXE
 
-## Patches that auto-skip on 07-16 (validate returns false)
-- **CustomJobs** — FIXED (Mar 9-11). Build-specific `apply0716()` handles uppercase job names + VS2022 differences. Phases 1-3 complete. Phase 4 (cosmetic name display) not started
-- **CustomSlotHLColor** — Not fixed. 07-16 uses CSkinMgr for slot highlight colors instead of hardcoded values
+## Patches that auto-skip on 07-16
+- **CustomJobs** — FIXED in later updates (see above)
+- **CustomSlotHLColor** — Not fixable. 07-16 uses a different system for slot highlight colors
 
 ## Verified Working
 All of the following patches have been tested and confirmed working on the 2025-07-16 client:
 
-NoWavyScreen, EnableWho, EnableShowName, MediumCamAngle, UseOldLogin, UseSSOLogin, AlwaysAscii, CallKoreaClientInfo, PlainTextDesc, LoadKrExtSettings, HideBuildInfo, FixArrowsCharset, TranslateClient, TranslateTaekwon, NoGGuard, MsgStrings, QuestDisplay, CustomItemInfoLub, CustomAchieveLub, CustomTownInfoLub, CustomTipboxLub, CustomMapInfoLub, CustomOngQuestInfoLub, CustomRcmdQuestInfoLub, CustomspopupLub, CustomQuestQualiLub, IncrMapQuality, DataFolderFirst, GRFsFromIni, EnableSysMenu, No1and1Arg, RestoreIcon, NoNagle, SendClientFlags, NoLoginEncr, OpenToServiceSelect, GuildBrackets, FixChatAt, NoHourly, NoSerialDisplay, NoHelpMsg, FixSkillbarReset, NoGravityAds, NoGravityLogo, FixLatestNCWin, DisConnToLogin, CustomInventoryLimit, CustomInventoryExpandingLimit, NoCharnameLimit, NoUsernameLimit, NoPasswordLimit, NoEquipWinTitle, NoEarthQuake, CustomEncKeys, Zoom (25%/50%/75%/Max)
+NoWavyScreen, EnableWho, EnableShowName, MediumCamAngle, UseOldLogin, UseSSOLogin, AlwaysAscii, CallKoreaClientInfo, PlainTextDesc, LoadKrExtSettings, HideBuildInfo, FixArrowsCharset, TranslateClient, NoGGuard, MsgStrings, QuestDisplay, CustomItemInfoLub, CustomAchieveLub, CustomTownInfoLub, CustomTipboxLub, CustomMapInfoLub, CustomOngQuestInfoLub, CustomRcmdQuestInfoLub, CustomspopupLub, CustomQuestQualiLub, IncrMapQuality, DataFolderFirst, GRFsFromIni, EnableSysMenu, No1and1Arg, RestoreIcon, NoNagle, SendClientFlags, NoLoginEncr, OpenToServiceSelect, GuildBrackets, FixChatAt, NoHourly, NoHelpMsg, FixSkillbarReset, NoGravityAds, NoGravityLogo, FixLatestNCWin, DisConnToLogin, CustomInventoryLimit, CustomInventoryExpandingLimit, NoCharnameLimit, NoUsernameLimit, NoPasswordLimit, NoEquipWinTitle, NoEarthQuake, CustomEncKeys, Zoom (25%/50%/75%/Max)
 
 ## User-Friendly Improvements
-- **This build of WARP only accepts the 2025-07-16 client EXE.**
+- **This build of WARP only accepts the 2025-07-16 client EXE**
 - **Title bar** changed to "WARP for 2025-07-16" so it's clear which client this targets
 - **"Loaded Date" label** renamed to "Client Date" for clarity
-- **Patch descriptions rewritten** — Many patches had outdated, missing, or unclear descriptions. Tooltips now explain what each patch actually does in plain language so users know what they're enabling
-- **Recommend flags reviewed** — Commonly needed patches are now marked as recommended. Situational or advanced patches are marked as not recommended, so new users get a good default set
-- **CustomPath.qjs** — When selecting a Custom*Lub patch (e.g. CustomItemInfoLub), the input now defaults to the original binary path but shows: *"If you're using llchrisll Translation Project this is Recommended"* with the recommended `SystemEN/` path displayed below. No more guessing what path to enter
-- **Translations_EN.yml** cleaned from 157 to 16 working entries — removed expired translations and entries whose byte patterns don't match 07-16
+- **Patch descriptions rewritten** — Tooltips now explain what each patch actually does in plain language
+- **Recommend flags reviewed** — Commonly needed patches are marked as recommended so new users get a good default set
+- **CustomPath.qjs** — When selecting a Custom*Lub patch, the input now defaults to the original path but shows the recommended `SystemEN/` path for llchrisll Translation Project users
+- **Translations_EN.yml** cleaned from 157 to 16 working entries
 - **AddLuaOverrides** link updated to llchrisll's current documentation URL
 
 

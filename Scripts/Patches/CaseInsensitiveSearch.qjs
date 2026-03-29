@@ -2,6 +2,7 @@
 *                                                                          *
 *   Copyright (C) 2019-2024 CH.C (jchcc)                                   *
 *   Copyright (C) 2021-2024 Neo-Mind                                       *
+*   Copyright (C) 2026 CrazyBebop                                          *
 *                                                                          *
 *   This file is a part of WARP project (specific to RO clients)           *
 *                                                                          *
@@ -21,9 +22,9 @@
 *                                                                          *
 |**************************************************************************|
 *                                                                          *
-*   Author(s)     : CH.C (jchcc), Neo-Mind                                 *
+*   Author(s)     : CH.C (jchcc), Neo-Mind, CrazyBebop                     *
 *   Created Date  : 2020-11-12                                             *
-*   Last Modified : 2024-08-22                                             *
+*   Last Modified : 2026-03-26                                             *
 *                                                                          *
 \**************************************************************************/
 
@@ -281,35 +282,64 @@ InsensitiveStorageSearch = function(_)
 	const fnAddr = CaseInsensitiveSearch(_);
 	
 	$$(_, 2.1, `Find string search for storage`)
-	const reg = ROC.FullVer == 14.29 ? EDX : ECX;
-	const prefix =
-		PUSH(reg)               //push ecx/edx
-	+	(Exe.Version > 11
-	?	CMOVNB(EAX, [EBP, WC])  //cmovnb eax, dword ptr [ebp - dispA / ARG.2]
-	:	''
-	)
-	+	PUSH_EAX                //push eax
-	;
+	let prefix, suffix;
 
-	const suffix =
-		CALL([POS4WC])          //call dword ptr [_mbsstr]
-	+	ADD(ESP, 8)             //add esp, 8
-	+	TEST(EAX, EAX)          //test eax, eax
-	+	(ROC.FullVer == 14.29
-	?
-		JNZ(WCp)
-	+	XOR(R8, R8)
-	+	JMP(POS2WC)
-	:
-		JE(4)                   //je short _skip ; after the JMP below
-	+	MOV(ESI, [ESI])         //mov esi, dword ptr [ESI]
-	+	JMP(WCp)                //jmp short _next
-	);
+	if (ROC.FullVer == 14.29)
+	{
+		// 07-16 (VC14.29): compiler uses SETAE+TEST+CMOVNE instead of CMOVNB
+		// for the std::string SSO conditional in UIItemListWnd__FilterItemsBySearchString.
+		// CMOVNE ECX,[EBP+disp8]; PUSH ECX; CALL [_mbsstr]; MOV EDI,[ESI]; ADD ESP,8; TEST EAX,EAX; JNZ
+		// Note: compiler reorders MOV EDI,[ESI] before ADD ESP,8
+		const fullPat = " 0F 45 4D ?? 51 FF 15" + POS4WC + " 8B ?? 83 C4 08 85 C0 75 ??";
+		let addr = Exe.FindHex(fullPat);
+		if (addr < 0)
+			throw Error("String search not found");
+
+		addr += 5; // skip CMOVNE(4) + PUSH(1) to reach the CALL
+
+		$$(_, 2.2, `Redirect the call to our function`)
+		Exe.SetCALL(addr, fnAddr, 1); //1 NOP afterwards
+
+		return true;
+	}
+	else if (Exe.Version > 11)
+	{
+		prefix =
+			PUSH(ECX)               //push ecx
+		+	CMOVNB(EAX, [EBP, WC])  //cmovnb eax, dword ptr [ebp - dispA / ARG.2]
+		+	PUSH_EAX                //push eax
+		;
+
+		suffix =
+			CALL([POS4WC])          //call dword ptr [_mbsstr]
+		+	ADD(ESP, 8)             //add esp, 8
+		+	TEST(EAX, EAX)          //test eax, eax
+		+	JE(4)                   //je short _skip ; after the JMP below
+		+	MOV(ESI, [ESI])         //mov esi, dword ptr [ESI]
+		+	JMP(WCp)                //jmp short _next
+		;
+	}
+	else
+	{
+		prefix =
+			PUSH(ECX)               //push ecx
+		+	PUSH_EAX                //push eax
+		;
+
+		suffix =
+			CALL([POS4WC])          //call dword ptr [_mbsstr]
+		+	ADD(ESP, 8)             //add esp, 8
+		+	TEST(EAX, EAX)          //test eax, eax
+		+	JE(4)                   //je short _skip ; after the JMP below
+		+	MOV(ESI, [ESI])         //mov esi, dword ptr [ESI]
+		+	JMP(WCp)                //jmp short _next
+		;
+	}
 
 	let addr = Exe.FindHex(prefix + suffix);
 	if (addr < 0)
 		throw Error("String search not found");
-	
+
 	addr += prefix.byteCount();
 	
 	$$(_, 2.2, `Redirect the call to our function`)
