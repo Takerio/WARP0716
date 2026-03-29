@@ -28,7 +28,7 @@ The multi-connection and cancel-exit features require a patched base EXE (`2025-
 
 Combined with the cancel-exit fix above, you can now list multiple servers and players will see the server select screen, pick their server, and connect to the correct one.
 
-Custom Jobs (Reforged), Custom Fonts (Reforged), Allow 65k Hair Styles (fixed for 07-16), multi-connection clientinfo.xml, service select cancel-exit, 21 patch fixes for 07-16 compatibility, and dead/incompatible patches removed. See [CHANGELOG.md](CHANGELOG.md) for full details.
+See [CHANGELOG.md](CHANGELOG.md) for full details on every patch and recent updates.
 
 **Custom Jobs Guide:** [HTML](docs/CustomJobs/CUSTOM_JOBS_GUIDE.html) | [Online](https://legacygamers.net/docs/public/customjobs-reforged/)
 
